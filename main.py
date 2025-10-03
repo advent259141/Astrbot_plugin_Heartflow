@@ -1,7 +1,8 @@
 import json
 import time
 import datetime
-from typing import Dict
+import asyncio
+from typing import Dict, Optional
 from dataclasses import dataclass
 
 import astrbot.api.star as star
@@ -37,6 +38,15 @@ class ChatState:
     total_messages: int = 0
     total_replies: int = 0
 
+@dataclass
+class UserWaitState:
+    """用户等待状态数据类"""
+    user_id: str
+    start_time: float
+    accumulated_messages: list  # 累积的消息列表
+    timer_task: Optional[asyncio.Task] = None
+    waiting_since: float = 0.0  # 开始等待的时间戳
+
 
 
 class HeartflowPlugin(star.Star):
@@ -56,8 +66,14 @@ class HeartflowPlugin(star.Star):
         self.whitelist_enabled = self.config.get("whitelist_enabled", False)
         self.chat_whitelist = self.config.get("chat_whitelist", [])
 
+        # 静默等待配置
+        self.silent_wait_duration = 6  # 静默等待时长，单位：秒
+
         # 群聊状态管理
         self.chat_states: Dict[str, ChatState] = {}
+        
+        # 用户等待状态管理：{chat_id}_{user_id}: UserWaitState
+        self.user_wait_states: Dict[str, UserWaitState] = {}
         
         # 系统提示词缓存：{conversation_id: {"original": str, "summarized": str, "persona_id": str}}
         self.system_prompt_cache: Dict[str, Dict[str, str]] = {}
@@ -393,14 +409,9 @@ class HeartflowPlugin(star.Star):
             if judge_result.should_reply:
                 logger.info(f"🔥 心流触发主动回复 | {event.unified_msg_origin[:20]}... | 评分:{judge_result.overall_score:.2f}")
 
-                # 设置唤醒标志为真，调用LLM
-                event.is_at_or_wake_command = True
+                # 进入静默等待状态，而不是立即回复
+                await self._enter_silent_wait(event, judge_result)
                 
-                # 更新主动回复状态
-                self._update_active_state(event, judge_result)
-                logger.info(f"💖 心流设置唤醒标志 | {event.unified_msg_origin[:20]}... | 评分:{judge_result.overall_score:.2f} | {judge_result.reasoning[:50]}...")
-                
-                # 不需要yield任何内容，让核心系统处理
                 return
             else:
                 # 记录被动状态
@@ -602,6 +613,127 @@ class HeartflowPlugin(star.Star):
         chat_state.energy = min(1.0, chat_state.energy + self.energy_recovery_rate)
 
         logger.debug(f"更新被动状态: {chat_id[:20]}... | 精力: {chat_state.energy:.2f} | 原因: {judge_result.reasoning[:30]}...")
+
+    async def _enter_silent_wait(self, event: AstrMessageEvent, judge_result: JudgeResult):
+        """进入静默等待状态"""
+        chat_id = event.unified_msg_origin
+        user_id = event.get_sender_id()
+        user_key = f"{chat_id}_{user_id}"
+        current_time = time.time()
+        
+        # 记录当前消息
+        message_info = {
+            'timestamp': current_time,
+            'content': event.message_str,
+            'event': event
+        }
+        
+        # 检查用户是否已经处于等待状态
+        if user_key in self.user_wait_states:
+            # 用户已有等待任务，取消原任务并重置计时器
+            wait_state = self.user_wait_states[user_key]
+            if wait_state.timer_task and not wait_state.timer_task.done():
+                wait_state.timer_task.cancel()
+            
+            # 添加新消息到累积列表
+            wait_state.accumulated_messages.append(message_info)
+            wait_state.waiting_since = current_time
+            
+            # 创建新的计时器任务
+            wait_state.timer_task = asyncio.create_task(
+                self._wait_and_reply(user_key, event, judge_result)
+            )
+            
+            logger.info(f"🔄 用户 {user_id[:5]}... 重置等待计时器，累积消息数: {len(wait_state.accumulated_messages)}")
+        else:
+            # 用户首次进入等待状态
+            timer_task = asyncio.create_task(
+                self._wait_and_reply(user_key, event, judge_result)
+            )
+            
+            # 存储等待状态
+            self.user_wait_states[user_key] = UserWaitState(
+                user_id=user_id,
+                start_time=current_time,
+                accumulated_messages=[message_info],
+                timer_task=timer_task,
+                waiting_since=current_time
+            )
+            
+            logger.info(f"⏳ 用户 {user_id[:5]}... 进入静默等待状态，预计等待 {self.silent_wait_duration} 秒")
+
+    async def _wait_and_reply(self, user_key: str, event: AstrMessageEvent, judge_result: JudgeResult):
+        """等待指定时长后，合并消息并触发回复"""
+        try:
+            # 等待指定时长
+            await asyncio.sleep(self.silent_wait_duration)
+            
+            # 检查用户状态是否仍然存在
+            if user_key not in self.user_wait_states:
+                return
+            
+            wait_state = self.user_wait_states[user_key]
+            
+            # 检查是否需要继续等待（防止竞争条件）
+            if time.time() - wait_state.waiting_since < self.silent_wait_duration - 0.1:
+                return
+            
+            # 合并用户累积的消息
+            combined_event = self._combine_user_messages(wait_state.accumulated_messages)
+            
+            if combined_event:
+                logger.info(f"🚀 静默等待结束，准备回复用户 {wait_state.user_id[:5]}... 的 {len(wait_state.accumulated_messages)} 条消息")
+                
+                # 设置唤醒标志为真，调用LLM
+                combined_event.is_at_or_wake_command = True
+                
+                # 更新主动回复状态
+                self._update_active_state(combined_event, judge_result)
+                
+                logger.info(f"💖 心流设置唤醒标志 | {combined_event.unified_msg_origin[:20]}... | 评分:{judge_result.overall_score:.2f} | 合并消息数:{len(wait_state.accumulated_messages)}")
+                
+                # 触发大型LLM生成回复
+                try:
+                    # 通过context将带有唤醒标志的事件发送到事件队列，触发系统使用大型LLM生成回复
+                    await self.context.get_event_queue().put(combined_event)
+                    logger.info(f"✅ 成功触发大型LLM回复用户 {wait_state.user_id[:5]}...")
+                    # 立即清空累积的消息，避免新对话混淆
+                    wait_state.accumulated_messages = []
+                    logger.info(f"🧹 已清空用户 {wait_state.user_id[:5]}... 的累积消息")
+                except Exception as e:
+                    logger.error(f"触发大型LLM回复失败: {e}")
+            
+        except asyncio.CancelledError:
+            # 任务被取消（用户发送了新消息）
+            logger.info(f"🚫 等待任务被取消: {user_key}")
+        except Exception as e:
+            logger.error(f"等待任务异常: {e}")
+        finally:
+            # 清理等待状态（只有当任务未被重置时才清理）
+            if user_key in self.user_wait_states:
+                wait_state = self.user_wait_states[user_key]
+                # 检查当前任务是否是正在执行的任务
+                if wait_state.timer_task and wait_state.timer_task.done():
+                    del self.user_wait_states[user_key]
+
+    def _combine_user_messages(self, accumulated_messages: list) -> Optional[AstrMessageEvent]:
+        """合并用户累积的消息"""
+        if not accumulated_messages:
+            return None
+        
+        # 获取第一条消息的事件对象作为基础
+        base_event = accumulated_messages[0]['event']
+        
+        # 合并所有消息内容
+        combined_content = "\n".join([msg['content'] for msg in accumulated_messages])
+        
+        # 创建一个新的事件对象副本
+        # 注意：这里我们直接修改原始事件对象的消息内容，因为无法直接创建新的AstrMessageEvent
+        base_event.message_str = combined_content
+        
+        logger.debug(f"📝 合并消息完成，原消息数: {len(accumulated_messages)}，合并后长度: {len(combined_content)}")
+        
+        return base_event
 
     # 管理员命令：查看心流状态
     @filter.command("heartflow")
