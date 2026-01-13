@@ -12,6 +12,12 @@
     "hint": "用于小参数模型判断的提供商，建议使用Gemini 2.0 Flash等快速小模型",
     "_special": "select_provider"
   },
+  "judge_backup_provider_name": {
+    "description": "备用判断模型提供商名称",
+    "type": "string",
+    "default": "",
+    "hint": "备用小参数模型判断的提供商名称，如配置的OpenAI、Claude等提供商"
+  },
   "reply_threshold": {
     "description": "回复阈值(0-1)",
     "type": "float",
