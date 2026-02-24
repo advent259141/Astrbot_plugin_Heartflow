@@ -350,12 +350,7 @@ class HeartflowPlugin(star.Star):
             complete_judge_prompt += judge_prompt
 
             # 提前计算对话历史上下文（循环外只算一次）
-            recent_contexts = self._get_buffered_history(
-                event.unified_msg_origin,
-                n=self.judge_context_count,
-                exclude_last_content=event.message_str,
-                as_dict=True,
-            )
+            recent_contexts = self._get_recent_contexts(event)
 
             # 重试机制：使用配置的重试次数
             max_retries = self.judge_max_retries + 1
@@ -613,15 +608,6 @@ class HeartflowPlugin(star.Star):
             role = "assistant" if m.is_bot else "user"
             contexts.append({"role": role, "content": m.content})
         return contexts
-
-    async def _build_chat_context(self, event: AstrMessageEvent) -> str:
-        """构建群聊上下文"""
-        chat_state = self._get_chat_state(event.unified_msg_origin)
-
-        context_info = f"""最近活跃度: {'高' if chat_state.total_messages > 100 else '中' if chat_state.total_messages > 20 else '低'}
-历史回复率: {(chat_state.total_replies / max(1, chat_state.total_messages) * 100):.1f}%
-当前时间: {datetime.datetime.now().strftime('%H:%M')}"""
-        return context_info
 
     def _get_recent_messages(self, event: AstrMessageEvent) -> str:
         """从原始消息缓冲区获取最近的消息历史（用于小参数模型判断）。
