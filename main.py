@@ -104,10 +104,9 @@ class HeartflowPlugin(star.Star):
         self.reply_threshold = self.config.get("reply_threshold", 0.6)
         self.energy_decay_rate = self.config.get("energy_decay_rate", 0.1)
         self.energy_recovery_rate = self.config.get("energy_recovery_rate", 0.02)
-        self.judge_context_count = max(
-            0,
-            int(self.config.get("judge_context_count", self.config.get("context_messages_count", 10)) or 0),
-        )
+        judge_count = int(self.config.get("judge_context_count", 10) or 0)
+        legacy_count = int(self.config.get("context_messages_count", 0) or 0)
+        self.judge_context_count = max(0, judge_count, legacy_count)
         self.min_reply_interval = self.config.get("min_reply_interval_seconds", 0)
         self.whitelist_enabled = self.config.get("whitelist_enabled", False)
         self.chat_whitelist = self.config.get("chat_whitelist", [])
