@@ -30,12 +30,6 @@
     "default": 0.02,
     "hint": "每次不回复时精力恢复的幅度"
   },
-  "context_messages_count": {
-    "description": "上下文消息数量",
-    "type": "int",
-    "default": 5,
-    "hint": "判断时考虑的最近消息数量"
-  },
   "whitelist_enabled": {
     "description": "启用群聊白名单",
     "type": "bool",
@@ -91,10 +85,10 @@
     "hint": "当小模型返回无效JSON时的最大重试次数，设为0时不重试，建议1-5次"
   },
   "judge_context_count": {
-    "description": "传入判断模型的上下文条数",
+    "description": "判断模型上下文条数",
     "type": "int",
     "default": 10,
-    "hint": "传给判断模型的对话历史条数，独立于context_messages_count，建议设置更大的值以提升判断质量"
+    "hint": "判断是否主动回复时，传给小判断模型的最近群聊历史条数。值越大，看到的上下文越多，但也会增加 token 消耗和噪声。"
   },
   "min_reply_interval_seconds": {
     "description": "最短回复间隔（秒）",

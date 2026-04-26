@@ -104,8 +104,10 @@ class HeartflowPlugin(star.Star):
         self.reply_threshold = self.config.get("reply_threshold", 0.6)
         self.energy_decay_rate = self.config.get("energy_decay_rate", 0.1)
         self.energy_recovery_rate = self.config.get("energy_recovery_rate", 0.02)
-        self.context_messages_count = self.config.get("context_messages_count", 5)
-        self.judge_context_count = self.config.get("judge_context_count", self.context_messages_count)
+        self.judge_context_count = max(
+            0,
+            int(self.config.get("judge_context_count", self.config.get("context_messages_count", 10)) or 0),
+        )
         self.min_reply_interval = self.config.get("min_reply_interval_seconds", 0)
         self.whitelist_enabled = self.config.get("whitelist_enabled", False)
         self.chat_whitelist = self.config.get("chat_whitelist", [])
@@ -116,7 +118,7 @@ class HeartflowPlugin(star.Star):
         # 原始群聊消息缓冲区：{unified_msg_origin: deque[RawMessage]}
         # 记录所有群聊原始消息（无论是否触发 LLM），用于判断上下文
         self._raw_msg_buffer: Dict[str, deque] = {}
-        self._raw_msg_buffer_size = max(self.context_messages_count, self.judge_context_count) * 4  # 缓冲区保留更多条以备用
+        self._raw_msg_buffer_size = max(self.judge_context_count * 4, 20)  # 缓冲区保留更多条以备用
 
         # 系统提示词缓存：{conversation_id: {"original": str, "summarized": str, "persona_id": str}}
         self.system_prompt_cache: Dict[str, Dict[str, str]] = {}
@@ -288,7 +290,7 @@ class HeartflowPlugin(star.Star):
 ## 群聊基本信息
 {chat_context}
 
-## 最近{self.context_messages_count}条对话历史
+## 最近{self.judge_context_count}条对话历史
 {recent_messages}
 
 ## 上次机器人回复
@@ -349,9 +351,6 @@ class HeartflowPlugin(star.Star):
             complete_judge_prompt += "\n\n**重要提醒：你必须严格按照JSON格式返回结果，不要包含任何其他内容！请不要进行对话，只返回JSON！**\n\n"
             complete_judge_prompt += judge_prompt
 
-            # 提前计算对话历史上下文（循环外只算一次）
-            recent_contexts = self._get_recent_contexts(event)
-
             # 重试机制：使用配置的重试次数
             max_retries = self.judge_max_retries + 1
             if self.judge_max_retries == 0:
@@ -361,7 +360,7 @@ class HeartflowPlugin(star.Star):
                 try:
                     llm_response = await judge_provider.text_chat(
                         prompt=complete_judge_prompt,
-                        contexts=recent_contexts,
+                        contexts=[],
                         image_urls=[],
                     )
 
@@ -591,24 +590,6 @@ class HeartflowPlugin(star.Star):
 
         return int((time.time() - chat_state.last_reply_time) / 60)
 
-    def _get_recent_contexts(self, event: AstrMessageEvent) -> list:
-        """从原始消息缓冲区获取最近对话上下文（用于传递给小参数模型）。
-
-        使用本地缓冲区而非 conversation_manager，以便包含所有群聊消息，
-        而不仅仅是触发过 LLM 的消息。
-        """
-        msgs = self._get_raw_buffer(event.unified_msg_origin)
-        # 排除当前这条消息（已被 _record_raw_message 写入），取之前的若干条
-        if msgs and msgs[-1].content == event.message_str:
-            msgs = msgs[:-1]
-        recent = msgs[-self.context_messages_count:] if len(msgs) > self.context_messages_count else msgs
-
-        contexts = []
-        for m in recent:
-            role = "assistant" if m.is_bot else "user"
-            contexts.append({"role": role, "content": m.content})
-        return contexts
-
     def _get_recent_messages(self, event: AstrMessageEvent) -> str:
         """从原始消息缓冲区获取最近的消息历史（用于小参数模型判断）。
 
@@ -618,7 +599,10 @@ class HeartflowPlugin(star.Star):
         # 排除当前这条消息（已被 _record_raw_message 写入），取之前的若干条
         if msgs and msgs[-1].content == event.message_str:
             msgs = msgs[:-1]
-        recent = msgs[-self.context_messages_count:] if len(msgs) > self.context_messages_count else msgs
+        count = max(0, int(self.judge_context_count or 0))
+        if count <= 0:
+            return "暂无对话历史"
+        recent = msgs[-count:] if len(msgs) > count else msgs
 
         if not recent:
             return "暂无对话历史"
