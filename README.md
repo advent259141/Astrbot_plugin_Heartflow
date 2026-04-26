@@ -36,7 +36,7 @@ Gemma 27b，可在Google Aistudio获取密钥后使用，每天免费14400次，
 - `reply_threshold`：回复阈值 (0-1，默认0.6)
 - `energy_decay_rate`：精力衰减速度 (默认0.1)
 - `energy_recovery_rate`：精力恢复速度 (默认0.02)
-- `context_messages_count`：上下文消息数量 (默认5)
+- `judge_context_count`：判断模型上下文条数，用于控制传给小判断模型的最近群聊历史条数 (默认10)
 
 ### 白名单配置
 - `whitelist_enabled`：启用群聊白名单 (默认false)
