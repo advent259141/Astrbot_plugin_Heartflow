@@ -121,6 +121,9 @@ class HeartflowPlugin(star.Star):
         # 系统提示词缓存：{conversation_id: {"original": str, "summarized": str, "persona_id": str}}
         self.system_prompt_cache: Dict[str, Dict[str, str]] = {}
 
+        # 判断不通过时是否使用Info日志
+        self.judge_reject_log_info = self.config.get("judge_reject_log_info", False)
+
         # 判断配置
         self.judge_include_reasoning = self.config.get("judge_include_reasoning", True)
         self.judge_max_retries = max(0, self.config.get("judge_max_retries", 3))  # 确保最小为0
@@ -472,7 +475,9 @@ class HeartflowPlugin(star.Star):
                 return
             else:
                 # 记录被动状态
-                logger.debug(f"心流判断不通过 | {event.unified_msg_origin[:20]}... | 评分:{judge_result.overall_score:.2f} | 原因: {judge_result.reasoning[:30]}...")
+                (logger.info if self.judge_reject_log_info else logger.debug)(
+                    f"心流判断不通过 | {event.unified_msg_origin[:20]}... | 评分:{judge_result.overall_score:.2f} | 原因: {judge_result.reasoning[:30]}..."
+                )
                 self._update_passive_state(event, judge_result)
 
         except Exception as e:
