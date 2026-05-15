@@ -37,6 +37,7 @@ Gemma 27b，可在Google Aistudio获取密钥后使用，每天免费14400次，
 - `energy_decay_rate`：精力衰减速度 (默认0.1)
 - `energy_recovery_rate`：精力恢复速度 (默认0.02)
 - `context_messages_count`：上下文消息数量 (默认5)
+- `judge_reject_log_info`：设置判断不通过时输出Info日志，快速查看跳过原因 (默认false)
 
 ### 白名单配置
 - `whitelist_enabled`：启用群聊白名单 (默认false)
@@ -119,9 +120,9 @@ weights = {
    - 调整权重配置
 
 4. **特定群聊不回复**
+   - 设置判断不通过时输出Info日志，快速查看跳过原因
    - 检查白名单配置是否正确
    - 确认群聊ID是否在白名单中
-   - 查看debug日志确认过滤原因
 
 ### 日志信息
 - `💖 心流主动回复`：成功回复的日志

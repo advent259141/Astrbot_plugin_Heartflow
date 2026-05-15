@@ -90,6 +90,12 @@
     "default": 3,
     "hint": "当小模型返回无效JSON时的最大重试次数，设为0时不重试，建议1-5次"
   },
+  "judge_reject_log_info": {
+    "description": "判断不通过时使用Info日志",
+    "type": "bool",
+    "default": false,
+    "hint": "启用后心流判断不通过的日志从Debug提升为Info，方便快速查看跳过原因"
+  },
   "judge_context_count": {
     "description": "传入判断模型的上下文条数",
     "type": "int",
