@@ -9,32 +9,52 @@
     "description": "判断模型提供商",
     "type": "string",
     "default": "",
-    "hint": "用于小参数模型判断的提供商，建议使用Gemini 2.0 Flash等快速小模型",
+    "hint": "用于小参数模型判断的提供商，建议使用响应较快、成本较低的模型",
     "_special": "select_provider"
   },
   "reply_threshold": {
     "description": "回复阈值(0-1)",
     "type": "float",
     "default": 0.6,
-    "hint": "超过此阈值才会主动回复，值越高越严格"
+    "hint": "超过此阈值才会主动回复，值越高越严格",
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    }
   },
   "energy_decay_rate": {
     "description": "精力衰减速度",
     "type": "float",
     "default": 0.1,
-    "hint": "每次回复后精力下降的幅度，影响后续回复的积极性"
+    "hint": "每次回复后精力下降的幅度，影响后续回复的积极性",
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.01
+    }
   },
   "energy_recovery_rate": {
     "description": "精力恢复速度",
     "type": "float",
     "default": 0.02,
-    "hint": "每次不回复时精力恢复的幅度"
+    "hint": "每次不回复时，以及每经过5分钟时恢复的精力幅度",
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.01
+    }
   },
   "context_messages_count": {
-    "description": "上下文消息数量",
+    "description": "本地上下文缓冲基数",
     "type": "int",
     "default": 5,
-    "hint": "判断时考虑的最近消息数量"
+    "hint": "用于追踪上次回复和群聊活跃度的本地缓冲基数，实际缓冲区会保留更多消息",
+    "slider": {
+      "min": 1,
+      "max": 100,
+      "step": 1
+    }
   },
   "whitelist_enabled": {
     "description": "启用群聊白名单",
@@ -52,54 +72,127 @@
     "description": "判断权重的内容相关度",
     "type": "float",
     "default": 0.25,
-    "hint": "针对判断权重的内容相关度设置，默认25%"
+    "hint": "针对判断权重的内容相关度设置，默认25%",
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    }
   },
   "judge_willingness": {
     "description": "判断权重的回复意愿",
     "type": "float",
     "default": 0.2,
-    "hint": "针对判断权重的回复意愿设置，默认20%"
+    "hint": "针对判断权重的回复意愿设置，默认20%",
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    }
   },
   "judge_social": {
     "description": "判断权重的社交适宜性",
     "type": "float",
     "default": 0.2,
-    "hint": "针对判断权重的社交适宜性设置，默认20%"
+    "hint": "针对判断权重的社交适宜性设置，默认20%",
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    }
   },
   "judge_timing": {
     "description": "判断权重的时机相关性",
     "type": "float",
     "default": 0.15,
-    "hint": "针对判断权重的时机相关性设置，默认15%"
+    "hint": "针对判断权重的时机相关性设置，默认15%",
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    }
   },
   "judge_continuity": {
     "description": "判断权重的对话连贯性",
     "type": "float",
     "default": 0.2,
-    "hint": "针对判断权重的对话连贯性设置，默认20%"
+    "hint": "针对判断权重的对话连贯性设置，默认20%",
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    }
   },
   "judge_include_reasoning": {
     "description": "判断时是否包含理由",
     "type": "bool",
     "default": true,
-    "hint": "让小模型在判断时返回详细理由。关闭可轻微提升性能和鲁棒性。"
+    "hint": "让小模型在判断时返回简短理由。关闭可轻微提升性能和鲁棒性。"
   },
   "judge_max_retries": {
     "description": "判断失败最大重试次数",
     "type": "int",
     "default": 3,
-    "hint": "当小模型返回无效JSON时的最大重试次数，设为0时不重试，建议1-5次"
+    "hint": "当小模型返回无效JSON时的最大重试次数，设为0时不重试，建议1-5次",
+    "slider": {
+      "min": 0,
+      "max": 5,
+      "step": 1
+    }
+  },
+  "judge_timeout_seconds": {
+    "description": "判断模型超时（秒）",
+    "type": "float",
+    "default": 30,
+    "hint": "整轮判断（包含格式重试）或单次人格总结的最长等待时间，超时后本条消息不会触发回复",
+    "slider": {
+      "min": 5,
+      "max": 120,
+      "step": 5
+    }
   },
   "judge_context_count": {
     "description": "传入判断模型的上下文条数",
     "type": "int",
     "default": 10,
-    "hint": "传给判断模型的对话历史条数，独立于context_messages_count，建议设置更大的值以提升判断质量"
+    "hint": "实际传给判断模型的最近对话条数，建议5-20条",
+    "slider": {
+      "min": 1,
+      "max": 100,
+      "step": 1
+    }
   },
   "min_reply_interval_seconds": {
     "description": "最短回复间隔（秒）",
     "type": "int",
     "default": 0,
-    "hint": "两次心流主动触发之间的最短间隔秒数，0表示不限制，可防止机器人过于频繁发言"
+    "hint": "两次心流主动触发之间的最短间隔秒数，0表示不限制，可防止机器人过于频繁发言",
+    "slider": {
+      "min": 0,
+      "max": 86400,
+      "step": 30
+    }
+  },
+  "max_tracked_chats": {
+    "description": "最大群聊状态数量",
+    "type": "int",
+    "default": 1000,
+    "hint": "限制内存中保留的群聊状态和消息缓冲数量，超出后淘汰最久未使用且未在处理中的群聊",
+    "slider": {
+      "min": 1,
+      "max": 10000,
+      "step": 100
+    }
+  },
+  "max_persona_cache": {
+    "description": "最大人格摘要缓存数量",
+    "type": "int",
+    "default": 100,
+    "hint": "限制内存中的人格提示词摘要缓存，超出后淘汰最久未使用的人格",
+    "slider": {
+      "min": 1,
+      "max": 1000,
+      "step": 10
+    }
   }
 }
