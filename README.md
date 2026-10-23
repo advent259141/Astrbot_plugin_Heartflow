@@ -86,14 +86,21 @@ JEV 每次请求的 `state.persona` 包含完整人格，`state.history` 包含�
 不读取数据库中的全部旧会话。缓存仍受 `context_messages_count` 等设置计算出的容量限制。
 不裁剪人格或单条消息原文；请求过长时可调小历史条数。历史图片保存消息标记，当前消息的图片按下述方式发送。
 
+### 使用 OpenRouter JEV
+
+设置 `jev_base_url` 为 `https://openrouter.ai/api/v1`，`jev_model` 为
+`typesafe/jev-1.14`，`jev_api_key` 填 OpenRouter 密钥，然后重载插件。
+文本与图片均支持；插件会将 OpenRouter 图片内嵌到 `state.images` 的 `image_url` 中，
+与完整文字上下文一起发送。OpenRouter 会忽略原生 `assets`，因此自动使用此格式。
+
 ### 图片与图文消息
 
 JEV 后端默认启用 `jev_enable_images`。纯图片和图文消息都会把当前消息的图片
-通过原生 `assets` 传给 JEV，与人格、群聊上下文一起评分；本地历史仅保存图片消息标记。
+通过对应服务的图片格式传给 JEV，与人格、群聊上下文一起评分；本地历史仅保存图片消息标记。
 `jev_max_images` 默认 4（范围 1–8），超出时选择当前消息最近的图片。
 关闭图片判断后，纯图片不触发心流，图文消息只按文字评分。
 
-图片功能遵循[官方实验性图片接口](https://docs.typesafe.ai/images)。请求会附带
+TypeSafe 官方及原生中转的图片功能遵循[官方实验性图片接口](https://docs.typesafe.ai/images)。请求会附带
 `TypeSafe-Danger-Zone-Images: true`。插件读取 AstrBot 图片组件，支持本地、URL、Base64
 来源，校正 EXIF 方向、将动画取首帧、转为 JPEG，最长边缩至 1568，短边不足 280 时留白补齐。
 原始图片不会被修改。中转服务需要支持 `assets`，并透传图片请求头；仅文本调用成功

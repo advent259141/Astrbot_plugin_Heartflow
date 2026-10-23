@@ -142,6 +142,42 @@ class JevHTTPTests(unittest.IsolatedAsyncioTestCase):
         first.convert_to_base64.assert_not_awaited()
         second.convert_to_base64.assert_awaited_once()
 
+    async def test_openrouter_embeds_images_with_full_state(self):
+        client = jev.JevClient(
+            {
+                "jev_base_url": "https://openrouter.ai/api/v1",
+                "jev_api_key": "test-only-key",
+                "jev_model": "typesafe/jev-1.14",
+                "jev_max_images": 1,
+            }
+        )
+        self.assertEqual(client.endpoint, "https://openrouter.ai/api/v1/systemone")
+        client.endpoint = self.client.endpoint
+        state = {
+            "persona": "完整人格",
+            "history": [{"role": "user", "content": "历史"}],
+        }
+        first, second = self.image(source="first"), self.image(source="second")
+        await client.evaluate(state, self.questions, images=[first, second, second])
+        body = self.requests[-1][1]
+        self.assertNotIn("assets", body)
+        self.assertEqual(self.image_headers, [None])
+        self.assertEqual(body["model"], "typesafe/jev-1.14")
+        for key, value in state.items():
+            self.assertEqual(body["state"][key], value)
+        self.assertNotIn("images", state)
+        self.assertEqual(body["state"]["omitted_images"], 1)
+        parts = body["state"]["images"]
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(parts[0]["type"], "image_url")
+        url = parts[0]["image_url"]["url"]
+        self.assertTrue(url.startswith("data:image/jpeg;base64,"))
+        with Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))) as decoded:
+            self.assertEqual(decoded.format, "JPEG")
+            self.assertGreater(decoded.getpixel((160, 160))[0], 240)
+        first.convert_to_base64.assert_not_awaited()
+        second.convert_to_base64.assert_awaited_once()
+
     async def test_disabled_vision_sends_text_without_assets(self):
         picture = self.image()
         self.client.enable_images = False

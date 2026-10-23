@@ -12,19 +12,20 @@
     "type": "string",
     "description": "TypeSafe JEV API Key",
     "default": "",
-    "hint": "填写 TypeSafe 或兼容中转服务的密钥；留空时读取 TYPESAFE_API_KEY。",
+    "hint": "填写 TypeSafe、OpenRouter 或兼容中转服务的密钥；留空时读取 TYPESAFE_API_KEY。",
     "obvious_hint": true
   },
   "jev_base_url": {
     "type": "string",
     "description": "JEV API 地址",
     "default": "https://api.typesafe.ai/v1",
-    "hint": "原生 System One API 的 /v1 基地址，也支持完整 /v1/systemone 地址；不是 chat/completions 接口。"
+    "hint": "原生 /v1 基地址或完整 /v1/systemone 地址；OpenRouter 填 https://openrouter.ai/api/v1，不是 chat/completions 接口。"
   },
   "jev_model": {
     "type": "string",
     "description": "JEV 模型",
-    "default": "jev-latest"
+    "default": "jev-latest",
+    "hint": "OpenRouter 使用 typesafe/jev-1.14；官方 TypeSafe 使用 jev-latest。"
   },
   "jev_timeout_seconds": {
     "type": "float",

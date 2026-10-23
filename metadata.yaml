@@ -3,6 +3,6 @@ display_name: 心流主动回复
 desc: "基于完整人格和逐条群聊上下文的心流主动回复，支持 LLM、JEV 及实验性图片判断"
 short_desc: "支持 LLM / JEV 判断，让机器人自然参与群聊"
 author: Jason.Joestar
-version: 2.4.0
+version: 2.4.1
 repo: https://github.com/advent259141/Astrbot_plugin_Heartflow
 astrbot_version: ">=4.27,<5"

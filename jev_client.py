@@ -6,6 +6,7 @@ import io
 import math
 import os
 import uuid
+from urllib.parse import urlsplit
 
 
 def image_components(event) -> list:
@@ -66,6 +67,7 @@ class JevClient:
         self.endpoint = (
             base_url if base_url.endswith("/systemone") else base_url + "/systemone"
         )
+        self.inline_images = urlsplit(self.endpoint).hostname == "openrouter.ai"
         self.model = str(config.get("jev_model", "") or "jev-latest").strip()
         self.enable_images = bool(config.get("jev_enable_images", True))
         try:
@@ -115,15 +117,28 @@ class JevClient:
                 }
 
             prepared = await asyncio.gather(*(asset(picture) for picture in selected))
-            assets = {str(uuid.uuid4()): value for value in prepared}
             multimodal_state = (
                 dict(state) if isinstance(state, dict) else {"message": state}
             )
-            multimodal_state["images"] = list(assets)
+            if self.inline_images:
+                # OpenRouter ignores native assets; embed images in the state.
+                multimodal_state["images"] = [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "data:image/jpeg;base64," + value["data_base64"]
+                        },
+                    }
+                    for value in prepared
+                ]
+            else:
+                assets = {str(uuid.uuid4()): value for value in prepared}
+                multimodal_state["images"] = list(assets)
+                payload["assets"] = assets
+                headers["TypeSafe-Danger-Zone-Images"] = "true"
             if len(unique) > len(selected):
                 multimodal_state["omitted_images"] = len(unique) - len(selected)
-            payload.update(state=multimodal_state, assets=assets)
-            headers["TypeSafe-Danger-Zone-Images"] = "true"
+            payload["state"] = multimodal_state
 
         try:
             async with aiohttp.ClientSession(
