@@ -29,7 +29,11 @@ def _load_plugin(plugin_root: Path):
         Loaded Heartflow module.
     """
     module_path = plugin_root / "main.py"
-    spec = importlib.util.spec_from_file_location("heartflow_astrbot_e2e", module_path)
+    spec = importlib.util.spec_from_file_location(
+        "heartflow_astrbot_e2e",
+        module_path,
+        submodule_search_locations=[str(module_path.parent)],
+    )
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Unable to load plugin module: {module_path}")
     module = importlib.util.module_from_spec(spec)
@@ -285,6 +289,11 @@ async def _run(plugin_root: Path) -> dict:
         bind_plugin(plugin)
         await dispatch_group_message(success_event)
         assert success_event.get_extra("heartflow_triggered") is True
+        judge_request = provider.calls[0]
+        assert "A friendly group-chat bot." in judge_request["system_prompt"]
+        assert "请分别给出0到10分" in judge_request["system_prompt"]
+        assert judge_request["prompt"] == "[Alice]: Should we discuss this topic?"
+        assert judge_request["contexts"] == []
         request = ProviderRequest(system_prompt="base system prompt")
         await call_event_hook(success_event, EventType.OnLLMRequestEvent, request)
         assert "主动参与群聊" in request.system_prompt
@@ -387,6 +396,74 @@ async def _run(plugin_root: Path) -> dict:
         )
         assert triggered_count == 1
 
+        # Exercise the native JEV HTTP path with real AstrBot events and hooks.
+        from aiohttp import web
+
+        jev_requests = []
+
+        async def jev_handler(request):
+            assert request.headers["Authorization"] == "Bearer e2e-test-key"
+            body = await request.json()
+            jev_requests.append(body)
+            return web.json_response(
+                {
+                    "answers": {
+                        name: {"type": "score", "score": 4, "confidence": 0.9}
+                        for name in body["questions"]
+                    }
+                }
+            )
+
+        app = web.Application()
+        app.router.add_post("/v1/systemone", jev_handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        try:
+            site = web.TCPSite(runner, "127.0.0.1", 0)
+            await site.start()
+            port = site._server.sockets[0].getsockname()[1]
+            jev_config = dict(plugin_config)
+            jev_config.update(
+                judge_backend="jev",
+                judge_provider_name="",
+                jev_api_key="e2e-test-key",
+                jev_base_url=f"http://127.0.0.1:{port}/v1",
+            )
+            jev_plugin = heartflow.HeartflowPlugin(context, jev_config)
+            bind_plugin(jev_plugin)
+            jev_event = make_event("jev-group", "Should we join this discussion?")
+            jev_plugin._record_raw_message(
+                make_event("jev-group", "Earlier question about async I/O.")
+            )
+            jev_plugin._record_bot_message(
+                jev_event.unified_msg_origin, "Use asynchronous HTTP."
+            )
+            await dispatch_group_message(jev_event)
+            assert jev_event.get_extra("heartflow_triggered") is True
+            assert len(jev_requests) == 1
+            assert len(jev_requests[0]["questions"]) == 5
+            history = jev_requests[0]["state"]["history"]
+            assert [entry["role"] for entry in history] == ["user", "assistant"]
+            assert [entry["content"] for entry in history] == [
+                "Earlier question about async I/O.",
+                "Use asynchronous HTTP.",
+            ]
+            request = ProviderRequest(system_prompt="base")
+            await call_event_hook(jev_event, EventType.OnLLMRequestEvent, request)
+            assert "主动参与群聊" in request.system_prompt
+            await call_event_hook(
+                jev_event,
+                EventType.OnLLMResponseEvent,
+                LLMResponse(role="assistant", completion_text="Let's discuss it."),
+            )
+            assert (
+                jev_plugin._get_chat_state(jev_event.unified_msg_origin).total_replies
+                == 1
+            )
+            await jev_plugin.terminate()
+        finally:
+            await runner.cleanup()
+
         await plugin.terminate()
         await timeout_plugin.terminate()
         await concurrency_plugin.terminate()
@@ -400,6 +477,8 @@ async def _run(plugin_root: Path) -> dict:
         "provider_error_rollback": True,
         "judge_timeout_unlock": True,
         "concurrent_cooldown": True,
+        "jev_native_http_and_real_hooks": True,
+        "llm_persona_system_and_plain_user_prompt": True,
     }
 
 

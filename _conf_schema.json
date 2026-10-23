@@ -1,4 +1,37 @@
 {
+  "judge_backend": {
+    "type": "string",
+    "description": "判断后端",
+    "default": "llm",
+    "options": [
+      "llm",
+      "jev"
+    ]
+  },
+  "jev_api_key": {
+    "type": "string",
+    "description": "TypeSafe JEV API Key",
+    "default": "",
+    "hint": "填写 TypeSafe 或兼容中转服务的密钥；留空时读取 TYPESAFE_API_KEY。",
+    "obvious_hint": true
+  },
+  "jev_base_url": {
+    "type": "string",
+    "description": "JEV API 地址",
+    "default": "https://api.typesafe.ai/v1",
+    "hint": "原生 System One API 的 /v1 基地址，也支持完整 /v1/systemone 地址；不是 chat/completions 接口。"
+  },
+  "jev_model": {
+    "type": "string",
+    "description": "JEV 模型",
+    "default": "jev-latest"
+  },
+  "jev_timeout_seconds": {
+    "type": "float",
+    "description": "JEV 请求超时（秒）",
+    "default": 10,
+    "hint": "范围 (0,120]；失败时心流跳过主动回复，防抖直接提交已缓存消息。"
+  },
   "enable_heartflow": {
     "description": "启用心流主动回复",
     "type": "bool",
@@ -144,7 +177,7 @@
     "description": "判断模型超时（秒）",
     "type": "float",
     "default": 30,
-    "hint": "整轮判断（包含格式重试）或单次人格总结的最长等待时间，超时后本条消息不会触发回复",
+    "hint": "整轮判断（包含格式重试）的最长等待时间，超时后本条消息不会触发回复",
     "slider": {
       "min": 5,
       "max": 120,
@@ -155,9 +188,9 @@
     "description": "传入判断模型的上下文条数",
     "type": "int",
     "default": 10,
-    "hint": "实际传给判断模型的最近对话条数，建议5-20条",
+    "hint": "LLM 和 JEV 均传入逐条原文历史；0 表示当前群缓存的全部历史，正数表示最近 N 条，不包含当前消息。缓存来自插件运行期间记录的群聊。",
     "slider": {
-      "min": 1,
+      "min": 0,
       "max": 100,
       "step": 1
     }
@@ -184,15 +217,21 @@
       "step": 100
     }
   },
-  "max_persona_cache": {
-    "description": "最大人格摘要缓存数量",
+  "jev_enable_images": {
+    "type": "bool",
+    "description": "启用 JEV 图片判断",
+    "default": true,
+    "hint": "使用原生实验性图片接口。中转服务需支持 assets 和 TypeSafe-Danger-Zone-Images 请求头。"
+  },
+  "jev_max_images": {
     "type": "int",
-    "default": 100,
-    "hint": "限制内存中的人格提示词摘要缓存，超出后淘汰最久未使用的人格",
+    "description": "JEV 单次最多判断图片数",
+    "default": 4,
+    "hint": "范围 1-8，超出时判断最近的图片；防抖仍保留全部图片供回复模型使用。",
     "slider": {
       "min": 1,
-      "max": 1000,
-      "step": 10
+      "max": 8,
+      "step": 1
     }
   }
 }

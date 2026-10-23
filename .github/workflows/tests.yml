@@ -18,10 +18,10 @@ jobs:
       - name: Install checks
         # Keep lint results reproducible instead of inheriting new rules from
         # whichever Ruff release happens to be latest when the workflow runs.
-        run: python -m pip install ruff==0.14.11
+        run: python -m pip install ruff==0.14.11 "aiohttp>=3.9" "pillow>=10.3"
       - name: Lint and format check
         run: |
-          ruff check main.py tests
-          ruff format --check main.py tests
+          ruff check main.py jev_client.py tests
+          ruff format --check main.py jev_client.py tests
       - name: Unit tests
         run: python -m unittest discover -s tests -v
