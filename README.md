@@ -138,21 +138,6 @@ JEV 后端默认启用 `jev_enable_images`。纯图片和图文消息都会把�
 
 所有内存状态会在插件重载或 AstrBot 重启后清空。
 
-## 本地检查
-
-```bash
-python -m unittest discover -s tests -v
-python -m pip install -r requirements.txt
-python -m ruff check main.py jev_client.py tests
-python -m ruff format --check main.py jev_client.py tests
-```
-
-在 AstrBot 4.27 源码目录中，可使用 uv 隔离环境执行真实类型和事件钩子集成测试：
-
-```bash
-uv run --isolated --project . python ../Astrbot_plugin_Heartflow/tests/astrbot_e2e.py --plugin-root ../Astrbot_plugin_Heartflow
-```
-
 ## 许可证
 
 本插件遵循仓库中的许可证文件。
