@@ -43,8 +43,14 @@
     "description": "判断模型提供商",
     "type": "string",
     "default": "",
-    "hint": "用于小参数模型判断的提供商，建议使用响应较快、成本较低的模型",
+    "hint": "用于 LLM 判断的提供商，图片判断开启时请选择支持视觉的模型",
     "_special": "select_provider"
+  },
+  "llm_enable_images": {
+    "type": "bool",
+    "description": "启用 LLM 图片判断",
+    "default": true,
+    "hint": "判断提供商需支持图片输入；纯图片与图文消息都会发送当前图片。关闭后仅判断文字，纯图片不触发心流。图片读取和请求共用判断超时。"
   },
   "reply_threshold": {
     "description": "回复阈值(0-1)",
@@ -222,13 +228,13 @@
     "type": "bool",
     "description": "启用 JEV 图片判断",
     "default": true,
-    "hint": "使用原生实验性图片接口。中转服务需支持 assets 和 TypeSafe-Danger-Zone-Images 请求头。"
+    "hint": "OpenRouter 自动使用内嵌图片格式；TypeSafe 及原生中转需支持 assets 和 TypeSafe-Danger-Zone-Images 请求头。"
   },
   "jev_max_images": {
     "type": "int",
     "description": "JEV 单次最多判断图片数",
     "default": 4,
-    "hint": "范围 1-8，超出时判断最近的图片；防抖仍保留全部图片供回复模型使用。",
+    "hint": "范围 1-8，超出时判断当前消息最近的图片；不限制最终回复模型的图片输入。",
     "slider": {
       "min": 1,
       "max": 8,

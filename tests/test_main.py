@@ -381,6 +381,131 @@ class HeartflowStateTests(unittest.IsolatedAsyncioTestCase):
 
 
 class HeartflowJudgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_llm_pure_and_mixed_images_keep_context_and_survive_retry(self):
+        for text in ["", "帮我看看这两张图"]:
+            with self.subTest(text=text):
+                provider = heartflow.Provider()
+                provider.text_chat = AsyncMock(
+                    side_effect=[
+                        _Response("[]"),
+                        _Response(
+                            '{"relevance": 8, "willingness": 8, "social": 8, "timing": 8, "continuity": 8}'
+                        ),
+                    ]
+                )
+                plugin = heartflow.HeartflowPlugin(_Context(provider), _config())
+                plugin._get_persona_system_prompt = AsyncMock(return_value="完整人格")
+                prior = _Event("之前的群聊问题", wake=True)
+                await plugin.on_group_message(prior)
+                event = _Event(text)
+                pictures = [
+                    types.SimpleNamespace(
+                        type="Image", convert_to_base64=AsyncMock(return_value=value)
+                    )
+                    for value in ["first-image", "second-image"]
+                ]
+                event.message_obj = types.SimpleNamespace(message=pictures)
+                await plugin.on_group_message(event)
+
+                self.assertTrue(event.get_extra("heartflow_triggered"))
+                self.assertEqual(provider.text_chat.await_count, 2)
+                for call in provider.text_chat.call_args_list:
+                    request = call.kwargs
+                    self.assertEqual(
+                        request["image_urls"],
+                        ["base64://first-image", "base64://second-image"],
+                    )
+                    self.assertEqual(
+                        request["prompt"], "[alice]: " + (text or "[图片消息]")
+                    )
+                    self.assertIn("完整人格", request["system_prompt"])
+                    self.assertNotIn("base64://", request["system_prompt"])
+                    self.assertEqual(
+                        request["contexts"],
+                        [{"role": "user", "content": "[alice]: 之前的群聊问题"}],
+                    )
+                for picture in pictures:
+                    picture.convert_to_base64.assert_awaited_once()
+
+    async def test_disabled_llm_vision_skips_pure_images_and_keeps_text(self):
+        provider = heartflow.Provider()
+        provider.text_chat = AsyncMock(
+            return_value=_Response(
+                '{"relevance": 8, "willingness": 8, "social": 8, "timing": 8, "continuity": 8}'
+            )
+        )
+        plugin = heartflow.HeartflowPlugin(
+            _Context(provider), _config(llm_enable_images=False)
+        )
+        plugin._get_persona_system_prompt = AsyncMock(return_value="人格")
+        picture = types.SimpleNamespace(type="Image", convert_to_base64=AsyncMock())
+        event = _Event("")
+        event.message_obj = types.SimpleNamespace(message=[picture])
+        await plugin.on_group_message(event)
+        provider.text_chat.assert_not_awaited()
+        event.message_str = "只判断这些文字"
+        await plugin.on_group_message(event)
+        self.assertTrue(event.get_extra("heartflow_triggered"))
+        self.assertEqual(provider.text_chat.call_args.kwargs["image_urls"], [])
+        picture.convert_to_base64.assert_not_awaited()
+
+    async def test_llm_image_read_failure_does_not_send_partial_judgment(self):
+        provider = heartflow.Provider()
+        provider.text_chat = AsyncMock()
+        plugin = heartflow.HeartflowPlugin(_Context(provider), _config())
+        plugin._get_persona_system_prompt = AsyncMock(return_value="人格")
+        event = _Event("帮我看图")
+        picture = types.SimpleNamespace(
+            type="Image", convert_to_base64=AsyncMock(side_effect=ValueError("broken"))
+        )
+        event.message_obj = types.SimpleNamespace(message=[picture])
+        await plugin.on_group_message(event)
+        provider.text_chat.assert_not_awaited()
+        self.assertFalse(event.get_extra("heartflow_triggered", False))
+        self.assertFalse(plugin._get_chat_lock(event.unified_msg_origin).locked())
+        self.assertIs(event.message_obj.message[0], picture)
+
+    async def test_llm_image_read_timeout_cancels_resolver(self):
+        provider = heartflow.Provider()
+        provider.text_chat = AsyncMock()
+        plugin = heartflow.HeartflowPlugin(_Context(provider), _config())
+        plugin._get_persona_system_prompt = AsyncMock(return_value="人格")
+        plugin.judge_timeout_seconds = 0.01
+        cancelled = asyncio.Event()
+
+        async def slow_image():
+            try:
+                await asyncio.sleep(10)
+            finally:
+                cancelled.set()
+
+        event = _Event("")
+        event.message_obj = types.SimpleNamespace(
+            message=[types.SimpleNamespace(type="Image", convert_to_base64=slow_image)]
+        )
+        await plugin.on_group_message(event)
+        self.assertTrue(cancelled.is_set())
+        self.assertFalse(event.get_extra("heartflow_triggered", False))
+        self.assertFalse(plugin._get_chat_lock(event.unified_msg_origin).locked())
+        provider.text_chat.assert_not_awaited()
+
+    async def test_llm_provider_vision_error_does_not_fall_back_to_text(self):
+        provider = heartflow.Provider()
+        provider.text_chat = AsyncMock(side_effect=RuntimeError("vision unsupported"))
+        plugin = heartflow.HeartflowPlugin(_Context(provider), _config())
+        plugin._get_persona_system_prompt = AsyncMock(return_value="人格")
+        event = _Event("")
+        picture = types.SimpleNamespace(
+            type="Image", convert_to_base64=AsyncMock(return_value="picture")
+        )
+        event.message_obj = types.SimpleNamespace(message=[picture])
+        await plugin.on_group_message(event)
+        self.assertFalse(event.get_extra("heartflow_triggered", False))
+        self.assertEqual(provider.text_chat.await_count, 1)
+        self.assertEqual(
+            provider.text_chat.call_args.kwargs["image_urls"], ["base64://picture"]
+        )
+
     async def test_judge_uses_system_prompt_and_retries_wrong_shape(self):
         class Provider(heartflow.Provider):
             def __init__(self):

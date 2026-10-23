@@ -7,9 +7,11 @@ types while replacing only network-facing provider and platform operations.
 
 import argparse
 import asyncio
+import base64
 import copy
 import functools
 import importlib.util
+import io
 import json
 import sys
 import tempfile
@@ -53,7 +55,7 @@ async def _run(plugin_root: Path) -> dict:
     """
     from astrbot.core.config.astrbot_config import AstrBotConfig
     from astrbot.core.config.default import DEFAULT_CONFIG
-    from astrbot.core.message.components import Plain
+    from astrbot.core.message.components import Image, Plain
     from astrbot.core.message.message_event_result import (
         MessageChain,
         MessageEventResult,
@@ -398,8 +400,54 @@ async def _run(plugin_root: Path) -> dict:
 
         # Exercise the native JEV HTTP path with real AstrBot events and hooks.
         from aiohttp import web
+        from PIL import Image as PillowImage
+        from astrbot.core.provider.sources.openai_source import ProviderOpenAIOfficial
 
         jev_requests = []
+        llm_requests = []
+        picture_bytes = io.BytesIO()
+        PillowImage.new("RGB", (320, 320), "red").save(picture_bytes, "PNG")
+
+        async def image_handler(_request):
+            return web.Response(body=picture_bytes.getvalue(), content_type="image/png")
+
+        async def llm_handler(request):
+            body = await request.json()
+            llm_requests.append(body)
+            return web.json_response(
+                {
+                    "id": "chatcmpl-e2e",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "vision-test",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": json.dumps(
+                                    dict.fromkeys(
+                                        [
+                                            "relevance",
+                                            "willingness",
+                                            "social",
+                                            "timing",
+                                            "continuity",
+                                        ],
+                                        9,
+                                    )
+                                ),
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2,
+                    },
+                }
+            )
 
         async def jev_handler(request):
             assert request.headers["Authorization"] == "Bearer e2e-test-key"
@@ -416,12 +464,86 @@ async def _run(plugin_root: Path) -> dict:
 
         app = web.Application()
         app.router.add_post("/v1/systemone", jev_handler)
+        app.router.add_post("/v1/chat/completions", llm_handler)
+        app.router.add_get("/picture.png", image_handler)
         runner = web.AppRunner(app)
         await runner.setup()
         try:
             site = web.TCPSite(runner, "127.0.0.1", 0)
             await site.start()
             port = site._server.sockets[0].getsockname()[1]
+            vision_provider = ProviderOpenAIOfficial(
+                {
+                    "id": "vision",
+                    "type": "openai_chat_completion",
+                    "key": ["e2e-test-key"],
+                    "model": "vision-test",
+                    "api_base": f"http://127.0.0.1:{port}/v1",
+                },
+                {},
+            )
+            provider_manager.inst_map["vision"] = vision_provider
+            vision_plugin = heartflow.HeartflowPlugin(
+                context, {**plugin_config, "judge_provider_name": "vision"}
+            )
+            try:
+                bind_plugin(vision_plugin)
+                local_picture = temp_path / "picture.png"
+                local_picture.write_bytes(picture_bytes.getvalue())
+                pictures = [
+                    Image.fromURL(f"http://127.0.0.1:{port}/picture.png"),
+                    Image.fromFileSystem(local_picture),
+                    Image.fromBytes(picture_bytes.getvalue()),
+                ]
+                mixed = make_event("llm-vision-group", "What is in these images?")
+                vision_plugin._record_raw_message(
+                    make_event("llm-vision-group", "Earlier image discussion.")
+                )
+                vision_plugin._record_bot_message(
+                    mixed.unified_msg_origin, "Please send the images."
+                )
+                mixed.message_obj.message.extend(pictures)
+                await dispatch_group_message(mixed)
+                assert mixed.get_extra("heartflow_triggered") is True
+                wire = llm_requests[-1]["messages"]
+                assert [message["role"] for message in wire] == [
+                    "system",
+                    "user",
+                    "assistant",
+                    "user",
+                ]
+                assert "## 机器人角色设定" in wire[0]["content"]
+                assert wire[1]["content"] == "[Alice]: Earlier image discussion."
+                assert wire[2]["content"] == "Please send the images."
+                assert (
+                    wire[-1]["content"][0]["text"]
+                    == "[Alice]: What is in these images?"
+                )
+                parts = wire[-1]["content"][1:]
+                assert len(parts) == 3
+                for part in parts:
+                    assert part["type"] == "image_url"
+                    data_url = part["image_url"]["url"]
+                    assert data_url.startswith("data:image/")
+                    with PillowImage.open(
+                        io.BytesIO(base64.b64decode(data_url.split(",", 1)[1]))
+                    ) as decoded:
+                        assert decoded.size == (320, 320)
+                assert mixed.message_obj.message[-3:] == pictures
+
+                pure = make_event("llm-vision-pure", "")
+                pure.message_obj.message = [pictures[-1]]
+                await dispatch_group_message(pure)
+                assert pure.get_extra("heartflow_triggered") is True
+                assert len(llm_requests) == 2
+                assert (
+                    llm_requests[-1]["messages"][-1]["content"][0]["text"]
+                    == "[Alice]: [图片消息]"
+                )
+            finally:
+                await vision_plugin.terminate()
+                await vision_provider.client.close()
+
             jev_config = dict(plugin_config)
             jev_config.update(
                 judge_backend="jev",
@@ -479,6 +601,8 @@ async def _run(plugin_root: Path) -> dict:
         "concurrent_cooldown": True,
         "jev_native_http_and_real_hooks": True,
         "llm_persona_system_and_plain_user_prompt": True,
+        "llm_current_images_with_real_provider_http": True,
+        "llm_url_local_base64_and_pure_images": True,
     }
 
 

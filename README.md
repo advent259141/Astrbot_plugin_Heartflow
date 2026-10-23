@@ -93,7 +93,19 @@ JEV 每次请求的 `state.persona` 包含完整人格，`state.history` 包含�
 文本与图片均支持；插件会将 OpenRouter 图片内嵌到 `state.images` 的 `image_url` 中，
 与完整文字上下文一起发送。OpenRouter 会忽略原生 `assets`，因此自动使用此格式。
 
-### 图片与图文消息
+### LLM 图片判断
+
+LLM 后端默认启用 `llm_enable_images`。选择支持视觉的 `judge_provider_name` 后，
+当前消息的全部图片会随文字一起发送给判断模型，支持纯图片、多图及图文消息。
+插件通过 AstrBot 图片组件解析 URL、本地文件和 Base64，再交由提供商适配请求格式。
+完整人格与判断要求仍在 system，逐条历史保留 user/assistant 角色，图片随最后一条 user 消息发送。
+历史图片仍仅保存消息标记，不会重新发送历史图片。
+
+关闭 `llm_enable_images` 后，图文消息仅按文字判断，纯图片不触发心流。
+图片读取与格式重试共用 `judge_timeout_seconds`；图片读取失败、超时或模型不支持视觉时，
+跳过本次主动回复。格式重试会继续携带同一批图片，原始消息图片不被修改。
+
+### JEV 图片与图文消息
 
 JEV 后端默认启用 `jev_enable_images`。纯图片和图文消息都会把当前消息的图片
 通过对应服务的图片格式传给 JEV，与人格、群聊上下文一起评分；本地历史仅保存图片消息标记。
