@@ -128,7 +128,8 @@ TypeSafe 官方及原生中转的图片功能遵循[官方实验性图片接口]
 | `energy_decay_rate` | `0.1` | 每次成功生成主动回复后消耗的精力 |
 | `energy_recovery_rate` | `0.02` | 未回复以及每经过 5 分钟恢复的精力 |
 | `context_messages_count` | `5` | 本地上下文缓冲基数 |
-| `judge_context_count` | `10` | 两种后端传入的历史条数；`0` 表示当前群缓存的全部历史，不包含当前消息 |
+| `judge_message_interval` | `1` | 每群累计多少条普通消息后统一判断，范围 `1-100`；未凑满一直等待 |
+| `judge_context_count` | `10` | 两种后端传入的额外历史条数；`0` 表示当前群缓存的全部历史，不包含本轮待判断消息 |
 | `judge_timeout_seconds` | `30` | 整轮判断（含格式重试）的超时秒数，范围 `5-120` |
 | `min_reply_interval_seconds` | `0` | 两次主动触发的最短间隔；`0` 表示不限制 |
 | `whitelist_enabled` | `false` | 是否仅处理白名单群聊 |

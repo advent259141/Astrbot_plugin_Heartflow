@@ -142,6 +142,81 @@ class JevHTTPTests(unittest.IsolatedAsyncioTestCase):
         first.convert_to_base64.assert_not_awaited()
         second.convert_to_base64.assert_awaited_once()
 
+    async def test_batch_image_indices_follow_deduplication_and_limit_without_mutation(
+        self,
+    ):
+        from copy import deepcopy
+
+        self.assertEqual(self.client.max_images, 4)
+        self.client.max_images = 2
+        for inline in (False, True):
+            with self.subTest(inline_images=inline):
+                self.client.inline_images = inline
+                first = self.image(source="A", color="red")
+                second = self.image(source="B", color="green")
+                duplicate = self.image(source="B", color="blue")
+                third = self.image(source="C", color="yellow")
+                state = {
+                    "persona": "Keep the full state",
+                    "history": [{"role": "user", "content": "Earlier message"}],
+                    "current_messages": [
+                        {"sender": "alice", "content": "A", "image_indices": [1]},
+                        {
+                            "sender": "bob",
+                            "content": "B twice",
+                            "image_indices": [2, 3],
+                        },
+                        {"sender": "carol", "content": "C", "image_indices": [4]},
+                    ],
+                }
+                original = deepcopy(state)
+                await self.client.evaluate(
+                    state, self.questions, images=[first, second, duplicate, third]
+                )
+                body = self.requests[-1][1]
+                sent = body["state"]
+                self.assertEqual(state, original)
+                self.assertEqual(sent["persona"], original["persona"])
+                self.assertEqual(sent["history"], original["history"])
+                expected = deepcopy(original["current_messages"])
+                for message, indices in zip(expected, ([], [1], [2])):
+                    message["image_indices"] = indices
+                expected[0]["omitted_images"] = 1
+                self.assertEqual(sent["current_messages"], expected)
+                self.assertEqual(sent["omitted_images"], 1)
+                self.assertEqual(len(sent["images"]), 2)
+                if inline:
+                    self.assertNotIn("assets", body)
+                    self.assertIsNone(self.image_headers[-1])
+                    encoded_images = [
+                        part["image_url"]["url"].split(",", 1)[1]
+                        for part in sent["images"]
+                    ]
+                    self.assertTrue(
+                        all(part["type"] == "image_url" for part in sent["images"])
+                    )
+                else:
+                    self.assertEqual(sent["images"], list(body["assets"]))
+                    self.assertEqual(self.image_headers[-1], "true")
+                    encoded_images = [
+                        body["assets"][reference]["data_base64"]
+                        for reference in sent["images"]
+                    ]
+                # Selected image 1 is B, not its same-source blue duplicate; image 2 is C.
+                for encoded, color in zip(encoded_images, ((0, 128, 0), (255, 255, 0))):
+                    with Image.open(io.BytesIO(base64.b64decode(encoded))) as decoded:
+                        actual = decoded.getpixel((160, 160))
+                    self.assertTrue(
+                        all(
+                            abs(value - target) < 10
+                            for value, target in zip(actual, color)
+                        )
+                    )
+                first.convert_to_base64.assert_not_awaited()
+                second.convert_to_base64.assert_awaited_once()
+                duplicate.convert_to_base64.assert_not_awaited()
+                third.convert_to_base64.assert_awaited_once()
+
     async def test_openrouter_embeds_images_with_full_state(self):
         client = jev.JevClient(
             {
