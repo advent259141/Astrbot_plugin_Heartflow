@@ -99,10 +99,13 @@ class JevClient:
         headers = {"Authorization": f"Bearer {self.api_key}"}
         if images and self.enable_images:
             unique = {}
+            sources = []
             for picture in images:
-                source = image_source(picture)
-                unique.setdefault(source or str(id(picture)), picture)
-            selected = list(unique.values())[-self.max_images :]
+                source = image_source(picture) or str(id(picture))
+                sources.append(source)
+                unique.setdefault(source, picture)
+            selected_sources = list(unique)[-self.max_images :]
+            selected = [unique[source] for source in selected_sources]
 
             async def asset(picture):
                 if isinstance(picture, str):
@@ -120,6 +123,34 @@ class JevClient:
             multimodal_state = (
                 dict(state) if isinstance(state, dict) else {"message": state}
             )
+            if "current_messages" in multimodal_state:
+                # Batch image indices refer to the original flattened attachments.
+                # Remap after deduplication/limiting, without mutating the caller's
+                # state (which may be reused for retries). Never leave a reference
+                # pointing to another sender's image after older images are omitted.
+                selected_indices = {
+                    source: index for index, source in enumerate(selected_sources, 1)
+                }
+                remapped = []
+                for message in multimodal_state["current_messages"]:
+                    original_sources = [
+                        sources[index - 1] for index in message["image_indices"]
+                    ]
+                    updated = dict(message)
+                    updated["image_indices"] = list(
+                        dict.fromkeys(
+                            selected_indices[source]
+                            for source in original_sources
+                            if source in selected_indices
+                        )
+                    )
+                    omitted = sum(
+                        source not in selected_indices for source in original_sources
+                    )
+                    if omitted:
+                        updated["omitted_images"] = omitted
+                    remapped.append(updated)
+                multimodal_state["current_messages"] = remapped
             if self.inline_images:
                 # OpenRouter ignores native assets; embed images in the state.
                 multimodal_state["images"] = [
